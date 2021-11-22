@@ -453,6 +453,32 @@ def merge_images(file_list, out_file):
     result.save(os.path.expanduser(out_file))
 # enddef
 
+def merge_images_vertically(file_list, out_file):
+    return merge_images(file_list, out_file)
+# enddef
+
+def merge_images_horizontally(file_list, out_file):
+    im_size_list = []
+
+    for f_this in file_list:
+        im_size_list.append(Image.open(f_this).size)
+    # endfor
+
+    result_width  = sum([x[0] for x in im_size_list])
+    result_height = max([x[1] for x in im_size_list])
+    v_ptr_t = 0
+    result  = Image.new('RGB', (result_width, result_height))
+
+    # Iterate
+    for f_this in file_list:
+        im_this = Image.open(f_this)
+        result.paste(im=im_this, box=(v_ptr_t, 0))
+        v_ptr_t = v_ptr_t + im_this.size[0]
+    # endfor
+
+    result.save(os.path.expanduser(out_file))
+# enddef
+
 def rev_map(x):
     return {v:k for k,v in x.items()}
 # enddef
@@ -477,14 +503,15 @@ def search_for(dir_t, file_ext_list=None, full_path=False):
 col_map    = {'Open':'o', 'High':'h', 'Low':'l', 'Close':'c', 'Volume':'v'}
 col_close  = 'Close'
 
-def read_asset_csv(csv_file, columns_map=col_map, resample_period=None):
+def read_asset_csv(csv_file, columns_map=col_map, resample_period=None,
+        resample_map={'Open':'first', 'High':'max', 'Low':'min', 'Close': 'last', 'Volume': 'sum' }):
     assert isdict(columns_map), 'columns_map is mandatory'
     # Reverse
     columns_map = rev_map(columns_map)
     # Read
     df = pd.read_csv(csv_file, index_col=0, infer_datetime_format=True, parse_dates=True)
     df = df.rename(columns=columns_map) if columns_map else df
-    df = df.resample(resample_period).mean().dropna() if resample_period else df
+    df = df.resample(resample_period).agg(resample_map) if resample_period else df
     return df
 # enddef
 
@@ -524,14 +551,15 @@ def read_all_asset_csvs(csv_dir, files_list=None, column_map=col_map, resample_p
     return df_map
 # enddef
 
-def resample_asset_data(dmap, resample_period=None):
+def resample_asset_data(dmap, resample_period=None,
+        resample_map={'Open':'first', 'High':'max', 'Low':'min', 'Close': 'last', 'Volume': 'sum' }):
     if resample_period is None:
         return None
     # endif
 
     dmap_t = {}
     for key_t in dmap.keys():
-        dmap_t[key_t] = dmap[key_t].resample(resample_period).mean().dropna()
+        dmap_t[key_t] = dmap[key_t].resample(resample_period).agg(resample_map)
     # endfor
     return dmap_t
 # enddef

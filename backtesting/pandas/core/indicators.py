@@ -1,55 +1,66 @@
 import pandas as pd
 import numpy as np
 import talib
-from   typing import AnyStr, Callable
+from   memoization import cached
+from   typing import AnyStr
+from   .utils import Cached
+from   cymodules.numpy_ext import *
 
-#######################################
-# Derivatives
-def vatr1_fn(atr_max):
-    def __catr(high, low, close, timeperiod):
-        return 2*atr_max - talib.ATR(high, low, close, timeperiod=timeperiod)
-    # endef
-    return __catr
+######################################
+# Indicators
+def ind_atr(high: pd.Series, low: pd.Series, close: pd.Series, window: int) -> pd.Series:
+    return pd.Series(talib.ATR(high.to_numpy(), low.to_numpy(), close.to_numpy(), window), index=high.index).fillna(0.0)
 # enddef
 
-#######################################
-# Moving average based signals
-def ema(s: pd.Series, window: int) -> pd.Series:
-    return s.ewm(span=window, adjust=False).mean()
+def ind_ema(s: pd.Series, window: int) -> pd.Series:
+    return s.ewm(span=window, adjust=False).mean().fillna(0.0)
 # enddef
 
-def sma(s: pd.Series, window: int) -> pd.Series:
-    return s.rolling(window).mean()
+def ind_sma(s: pd.Series, window: int) -> pd.Series:
+    return s.rolling(window).mean().fillna(0.0)
 # enddef
 
-########################################
-# 
-def supertrend(high: pd.Series, low: pd.Series, close: pd.Series,
-        atr_period: int, atr_multiplier: float, atr_fn: Callable=None) -> pd.Series:
-    # To numpy
-    index  = close.index
-    high   = high.to_numpy()
-    low    = low.to_numpy()
-    close  = close.to_numpy()
+def ind_supertrend(high: pd.Series, low: pd.Series, close: pd.Series,
+        atr_period: int, atr_multiplier: float) -> pd.Series:
+    # Calculate atr
+    atr_t  = ind_atr(high, low, close, atr_period)
 
-    # Base signals
-    atr_fn = atr_fn if atr_fn else talib.ATR
-    atr_t  = atr_fn(high, low, close, timeperiod=atr_period)
-    avg_t  = (high + low)/2
-    bas_u  = avg_t - atr_multiplier * atr_t
-    bas_l  = avg_t + atr_multiplier * atr_t
-    f_up   = np.zeros_like(close)
-    f_down = np.zeros_like(close)
-    strend = np.zeros_like(close)
-    tpos   = np.zeros_like(close)
-
-    for i, _ in enumerate(close):
-        f_up[i]    = max(bas_u[i], f_up[i-1]) if close[i-1] > f_up[i-1] else bas_u[i]
-        f_down[i]  = min(bas_l[i], f_down[i-1]) if close[i-1] < f_down[i-1] else bas_l[i]
-        tpos[i]    = 1.0 if close[i] > f_down[i-1] else -1.0 if close[i] < f_up[i-1] else tpos[i-1]
-        strend[i]  = f_up[i] if tpos[i] == 1.0 else f_down[i] if tpos[i] == -1.0 else strend[i-1]
-    # endfor
-
-    return pd.Series(strend, index=index)
+    return pd.Series(np_ind_supertrend(high.to_numpy(),
+            low.to_numpy(), close.to_numpy(), atr_t.to_numpy(), atr_multiplier), index=high.index).fillna(0.0)
 # endclass
 
+# high, low, close, open are higher timeframe prices.
+def ind_pivots_classic(open: pd.Series, high: pd.Series, low: pd.Series, close: pd.Series) -> pd.DataFrame:
+    pi_level       = (high + low + close)/3
+    bc_level       = (high + low)/2
+    tc_level       = (pi_level - bc_level) + pi_level
+    r1_level       = pi_level * 2 - low
+    s1_level       = pi_level * 2 - high
+    r2_level       = (pi_level - s1_level) + r1_level
+    s2_level       = pi_level - (r1_level - s1_level)
+
+    return pd.DataFrame({
+        'pi' : pi_level, 'tc' : tc_level, 'bc' : bc_level,
+        'r1' : r1_level, 's1' : s1_level,
+        'r2' : r2_level, 's2' : s2_level,
+        'hi' : high,     'lo' : low
+    })
+# enddef
+
+def ind_pivots_fib(open: pd.Series, high: pd.Series, low: pd.Series, close: pd.Series) -> pd.DataFrame:
+    PP = (high + low + close)/3
+    R1 = PP + 0.382*(high - low)
+    S1 = PP - 0.382*(high - low)
+    R2 = PP + 0.618*(high - low)
+    S2 = PP - 0.618*(high - low)
+    R3 = PP + (high - low)
+    S3 = PP - (high - low)
+
+    return pd.DataFrame({
+        'pi' : PP,
+        'r1' : R1,   's1' : S1,
+        'r2' : R2,   's2' : S2,
+        'r3' : R3,   's3' : S3,
+        'hi' : high, 'lo' : low,
+    })
+# enddef
